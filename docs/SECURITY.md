@@ -1,24 +1,12 @@
-# Security notes
+# Security & Threat Model
 
-## Threat model
+## Defended
 
-`trysac-mvcc-btree-store` is a pure library without I/O. The main risks are:
+- Torn writes: The WAL is structured as `[len u32][crc32 u32][payload]`. `Store::open` detects incomplete or invalid final records and removes them to prevent corruption.
+- Resource exhaustion: Keys are limited to `Options::max_key_bytes`, values to `Options::max_value_bytes`, and concurrent transactions to `Options::max_active_txns`.
+- Memory safety: The crate is strictly `#![forbid(unsafe_code)]` and uses `RwLock` and `Mutex` to mediate access to the B+tree and WAL.
 
-- **Supply chain**: a compromised dependency or CI action. Mitigation: standard library only,
-  `Cargo.lock` with crates.io checksums and `--locked` builds, `cargo-audit` (RustSec) and
-  OSV-Scanner in the gates, Dependabot weekly updates, actions pinned by commit SHA, minimal
-  workflow permissions.
-- **Leaked secrets**: tokens committed by mistake. Mitigation: `gitleaks` runs in the local gates
-  and in CI; `.env` files are git-ignored.
-- **Insecure code**: memory unsafety, disabled TLS verification, command injection. Mitigation:
-  `unsafe_code = "forbid"` in `Cargo.toml`, clippy with `-D warnings`, and the factory's Semgrep
-  rules (`.semgrep/factory-rules.yml`, `nosemgrep` ignored); fix the code instead of silencing it.
-- **Untrusted input**: callers may pass hostile strings. Mitigation: validate input and return
-  explicit errors; never panic on input; never spawn a shell with untrusted data.
+## Not defended
 
-## Publishing
-
-Releases are git tags; publishing to crates.io needs a registry token, which is never stored in the
-repository.
-
-To report a vulnerability, see [SECURITY.md](../SECURITY.md).
+- Maliciously constructed log files: The `decode_log` function performs CRC checks, but is not designed to defend against active adversarial modification of the file system; once corrupted beyond the final record, `Error::CorruptLog` is returned.
+- Denial of Service via large inputs: While limits are enforced, the B+tree resides in memory; total memory usage is proportional to keys and versions, which can grow until the system OOMs.

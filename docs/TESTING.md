@@ -3,33 +3,20 @@
 ## Running
 
 ```sh
-cargo test                                                # unit, integration, property and doc tests
-cargo llvm-cov                                            # the same with a coverage summary
-cargo run --locked --manifest-path scripts/check/Cargo.toml   # every gate, as CI and the factory run it
+cargo test
+cargo llvm-cov
 ```
 
-## Policy
+## Existing Tests
 
-- Line coverage of the library (measured by `cargo llvm-cov`) must stay at or above 80 %; the gate
-  fails below it.
-- Integration tests in `tests/` exercise the public API only. They assert every observable effect:
-  returned values, returned errors (`assert_eq!(f(x), Err(Error::...))`) and their messages.
-- Property tests (`proptest!`) state invariants such as idempotence or round trips; the README
-  example runs as a doc test.
-- Each bug fix starts with a failing test that reproduces it.
-- Tests are deterministic: no network, no wall clock, no dependence on test order.
-
-## Tiers
-
-- Local tier (every gate run, coverage measured here): unit, integration, property and doc tests, plus
-  conformance on small fixtures kept in the repository.
-- CI tier: conformance that needs an external tool or a download. Start the file under `tests/` with
-  `#![cfg(feature = "conformance")]`; `scripts/check` enables the `conformance` feature only when
-  `FABRICA_CI=1`, while clippy always compiles it. The CI `conformance` job sets `FABRICA_CI=1` and runs
-  the full suite. Tools are installed by the optional `ci/conformance-setup.sh` (bash, CI only; verify
-  every download against a pinned SHA-256), and tests skip cleanly when their tool is missing.
-
-## Layout
-
-Integration tests live in `tests/`, one file per area; private helpers may have `#[cfg(test)]` unit
-tests next to them. Fixtures and golden files go in `tests/fixtures/`.
+- `tests/api.rs`: Integration tests covering:
+    - Basic CRUD operations and monotonic timestamps.
+    - Snapshot isolation (no non-repeatable reads, no phantoms).
+    - Conflict detection: first-committer-wins vs disjoint commit success.
+    - Concurrency: bank transfer simulation with 8 threads; asserts invariant consistency and no lost updates.
+    - Crash recovery: verifies recovery from torn log writes using `MemStorage` and `crash_at`.
+    - B+tree integrity: validates order 4 constraints, key sorting, and leaf depth uniformity with 10,000 keys.
+- Unit tests:
+    - `src/btree.rs`: B+tree structural logic (via `validate_invariants`).
+    - `src/wal.rs`: Payload encoding/decoding and CRC validation.
+    - `src/crc.rs`: IEEE 802.3 CRC-32 consistency (tested against `0xCBF4_3926`).

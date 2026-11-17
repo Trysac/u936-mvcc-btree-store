@@ -1,31 +1,10 @@
 # Architecture
 
-## Purpose
+## Overview
 
-`trysac-mvcc-btree-store` is a small, dependency-free Rust library: Embedded key-value store on a B+tree with MVCC snapshot isolation, first-committer-wins conflict detection and a CRC-checked write-ahead log that survives torn writes
+`mvcc_btree_store` is a single-process embedded key-value store composed of four internal modules:
 
-## Shape
-
-```text
-caller code --> crate mvcc_btree_store (src/lib.rs)
-                    |
-                    +-- pure functions, no I/O, no global mutable state
-                    +-- private modules under src/ (optional)
-```
-
-- **Public API**: every `pub` item reachable from `src/lib.rs`. Private modules and `pub(crate)` items
-  may change without a major version.
-- **Errors**: invalid input returns `Err` with the crate's `Error` enum (`#[non_exhaustive]`, so new
-  variants are not breaking). The library never panics on input, prints or exits.
-- **Side effects**: none. If a feature needs I/O, accept a trait (`std::io::Read` or a small custom
-  one) instead of opening resources, and record the choice in an ADR.
-- **Safety**: `unsafe` code is forbidden by the crate's lints.
-
-## Quality contract
-
-`scripts/check` is the single definition of the gates; `fabrica.json` tells the factory and CI
-how to run it. See [TESTING.md](TESTING.md).
-
-## Decisions
-
-Architecture decisions are recorded in [decisions/](decisions/) as numbered ADRs.
+1. `src/btree.rs`: An arena-allocated B+tree (`Vec<Node>`) with index links (`usize`) and zero `unsafe` code. Internal nodes hold separator keys and child indices; leaf nodes form a singly-linked list (`next: Option<usize>`) for range scans and map each key to a descending list of `Version { ts: u64, value: Option<Vec<u8>> }` (`None` represents a tombstone). Nodes split at `Options::order` (default 64, minimum 4).
+2. `src/wal.rs` & `src/crc.rs`: Binary write-ahead log encoder/decoder protected by IEEE 802.3 CRC-32 (`0xEDB88320`).
+3. `src/storage.rs`: The `Storage` trait along with `FileStorage` (atomic temp-file + sync + rename on `replace`) and `MemStorage` (in-memory buffer supporting deterministic `crash_at` torn-write simulation).
+4. `src/lib.rs`: Transaction coordinator (`Store` and `Txn`) implementing snapshot isolation, first-committer-wins conflict detection, deterministic version garbage collection, and log checkpointing.
