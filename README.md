@@ -1,42 +1,39 @@
 # mvcc-btree-store
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/Trysac/u936-mvcc-btree-store/actions/workflows/ci.yml/badge.svg)](https://github.com/Trysac/u936-mvcc-btree-store/actions/workflows/ci.yml)
-
-Embedded key-value store on a B+tree with MVCC snapshot isolation, first-committer-wins conflict detection and a CRC-checked write-ahead log that survives torn writes
+Embedded key-value store on a B+tree with MVCC snapshot isolation, first-committer-wins conflict detection, multiversion garbage collection, and a CRC32-checked write-ahead log (`WAL`) that recovers cleanly from torn writes.
 
 ## Problem
 
-Describe in two or three sentences the concrete problem this utility solves, who hits it, and what
-they do today without it. Replace this paragraph when the first real feature lands.
+Applications that embed a key-value store need concurrent readers that never block writers and a store that comes back consistent after a crash, and hand-rolled maps behind a mutex give neither. Full databases are large, and many small stores silently lose updates under concurrency.
 
-## Install
+## Installation
 
-```sh
-cargo add trysac-mvcc-btree-store --git https://github.com/Trysac/u936-mvcc-btree-store
-```
-
-Requires Rust 1.88 or newer. No dependencies outside the standard library.
+Add `mvcc-btree-store` to your `Cargo.toml`. This library is written in pure Rust (edition 2024), relies only on the standard library, and is tested for safety.
 
 ## Usage
 
 ```rust
-use mvcc_btree_store::{Error, normalize};
+use mvcc_btree_store::{MemStorage, Options, Store};
 
-// normalize trims surrounding whitespace and lower-cases the text.
-assert_eq!(normalize("  Hello World ").as_deref(), Ok("hello world"));
+let store = Store::open(Box::new(MemStorage::new()), Options::default()).unwrap();
+let mut tx = store.begin().unwrap();
+tx.put(b"a", b"1").unwrap();
+assert_eq!(tx.commit().unwrap(), 1);
 
-// Blank input is rejected explicitly instead of returning an empty string.
-assert_eq!(mvcc_btree_store::normalize("   "), Err(Error::Blank));
+let reader = store.begin().unwrap();
+assert_eq!(reader.get(b"a").unwrap(), Some(b"1".to_vec()));
 ```
 
-## Documentation
+## Public API
 
-- [Architecture](docs/ARCHITECTURE.md) and [decisions](docs/decisions/)
-- [Testing](docs/TESTING.md) and [security](docs/SECURITY.md)
-- [Project record](docs/PROJECT.md) and [stack](docs/STACK.md)
-- [Changelog](CHANGELOG.md) and [contributing guide](CONTRIBUTING.md)
+- `Store`: The main handle. Create with `Store::open(storage, opts)`, begin transactions with `begin()`, or checkpoint logs with `checkpoint()`. Stats available via `stats()`.
+- `Txn`: A snapshot-isolated transaction. Provides `get`, `put`, `delete`, `scan`, `commit` (returns timestamp on success or `Error::WriteConflict`), and `rollback`.
+- `Storage` trait: Abstracts file or memory backends. `FileStorage` handles atomic replacement with temporary files.
+- `Error`: Includes `write_conflict`, `key_too_large`, `value_too_large`, `too_many_transactions`, `corrupt_log`, and `io` variants. Use `code()` for stable identifiers.
+- `Options`: Configure `order` (default 64), `max_key_bytes` (1,024), `max_value_bytes` (1,048,576), and `max_active_txns` (1,024).
 
-## License
+## Why not existing alternatives?
 
-[MIT](LICENSE) (c) 2026 Miguel Gomez
+This is a small, readable reference implementation of MVCC and WAL recovery with every isolation and crash claim tested; it prioritizes correct multiversion semantics over the feature set found in larger stores like `sled` or `redb`.
+
+See [docs/SECURITY.md](docs/SECURITY.md) for threat modeling.

@@ -9,4 +9,5 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Added MVCC B+tree store (`Store`, `Txn`, `Storage`, `FileStorage`, `MemStorage`, `Options`, `Stats`, `Error`, `crc32`, and CLI runner) with snapshot isolation, first-committer-wins conflict detection, WAL crash recovery, and checkpointing.
 - Initial project structure from the factory utility template.
